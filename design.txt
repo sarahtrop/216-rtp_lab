@@ -1,0 +1,26 @@
+# Sarah Trop and Daniel Nanetti-Palacios
+# Lab: Reliable Transport Protocol
+
+
+## The A Side
+When the protocol calls A_ouput(message), the program will start the timer,
+send the message to the B side from the A side, and wait for an ACK
+response. When the A side is receiving instead of sending (when
+A_input(packet) is called), the timer will stop and the function will
+process the input. Both A_output and A_input check if the message has been
+corrupted. If A_timerinterrupt() is called while packets are being
+sent and received by the A side, the packet will have to be
+retransmitted. A_init() will initialize the A side, before any packets have
+been sent or receieved by the A side. The base will start at 0, and the
+nextseqnum will be N (the maximum number of messages in process at once),
+and when base == nextseqnum, base = nextseqnum and nextsexnum = base +
+N. The timer also stops when base == nextseqnum. After each ACK messaged is
+received, then base and nextseqnum get incremented. 
+
+## The B Side
+When B_input(packet) is called, when the B side is receiving input, B side
+will prompts the sending of an ACK message back to the A side. This
+function also checks whether the message has been corrupted. B_init()
+initializes the B side before any functions have been called, to receive
+packets or send ACK messages.
+
