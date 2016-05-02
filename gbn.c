@@ -72,22 +72,22 @@ int computeChecksum(char* data) {
 
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message) {
-  if (nextseqsum < base + WINDOW_SIZE) {
+  if (nextseqnum < base + WINDOW_SIZE) {
     // Create new packet and intitalize with data
     struct pkt packet;
     memcpy(packet.payload, message.data, DATA_LENGTH);
     packet.checksum = computeChecksum(message.data);
     packet.acknum = 0;
     packet.seqnum = nextseqnum;
-    buffer[nextseqsum - 1] = packet;
-    nextseqsum++;
+    buffer[nextseqnum - 1] = packet;
+    nextseqnum++;
 
     // Pass to layer 3
-    tolayer3((int)'A', packet);
+    tolayer3(0, packet);
     
-    if(base == nextseqsum) {
-      // Start the timer (assuming A is represented by 0)
-      starttimer((int)'A', (float)0.1);
+    if(base == nextseqnum) {
+      // Start the timer 
+      starttimer(0, (float)0.1);
     }
   }
   else {
@@ -100,26 +100,26 @@ void A_input(struct pkt packet) {
   // Checking for corruption
   int newChecksum = computeChecksum(packet.payload);
   if (newChecksum != packet.checksum) { // If the checksum is not correct, resend
-    tolayer3((int)'A', packet);
+    tolayer3(0, packet);
   } else {
     base = packet.acknum + 1;
     if (base == nextseqnum) {
-      stoptimer((int)'A');
+      stoptimer(0);
     }
     else {
-      starttimer((int)'A', (float)0.1);
+      starttimer(0, (float)0.1);
     }
   }
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt() {
-  stoptimer(0); // Assuming A is represented by 0
+  stoptimer(0);
   int i;
   for (i = base; i < nextseqnum; i++) {
-    tolayer3((int)'A', buffer[i]);
+    tolayer3(0, buffer[i]);
   }
-  starttimer((int)'A', (float)0.1);
+  starttimer(0, (float)0.1);
 }  
 
 /* the following routine will be called once (only) before any other */
@@ -134,30 +134,42 @@ void A_init() {
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 
-// TODO: ASK CHARLIE FOR HELP WITH B_INPUT
 void B_input(struct pkt packet) {
    // Checking for corruption
   int newChecksum = computeChecksum(packet.payload);
   if (newChecksum != packet.checksum) { // If the checksum is not correct, resend
     return;
   }
+  // Check for packet loss
+  else if(expseqnum != nextseqnum) {
+    int i;
+    struct pkt lost;
+    // Find lost packet
+    for (i = 0; i < WINDOW_SIZE; i++) {
+      if (buffer[i].acknum == 0) {
+        lost =  buffer[i];
+      }
+    }
+    // Resend lost packet
+    tolayer3(1, lost);
+  }
   else {
-    // Send to layer 5, assuming B is represented by 1
-    tolayer5((int)'B', packet.payload);
+    // Send to layer 5
+    tolayer5(1, packet.payload);
     struct pkt newPacket;
     newPacket.seqnum = expseqnum;
-    newPacket.payload = packet.payload;
+    memcpy(newPacket.payload, packet.payload, DATA_LENGTH);
     newPacket.checksum = packet.checksum;
-    newPacket.acknum = 1; // WHAT DO WE MAKE THE ACK
-    tolayer3((int)'A', newPacket);
+    newPacket.acknum = 1;
+    tolayer3(1, newPacket);
     expseqnum++;
   }
 }
 
 /* called when B's timer goes off */
 void B_timerinterrupt() {
-  stoptimer((int)'B'); // Assuming B is represented by 1
-  starttimer((int)'B', 0.1);
+  stoptimer(1); 
+  starttimer(1, 0.1);
 }
 
 /* the following rouytine will be called once (only) before any other */
