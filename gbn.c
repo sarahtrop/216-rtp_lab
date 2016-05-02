@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
+#include <stdint.h>
 #include <stdlib.h>        /* Added for gcc. JJW 01/14/14 */
 
 /*******************************************************************
@@ -37,125 +39,131 @@ struct pkt {
   char payload[DATA_LENGTH];
 };
 
+int nextseqnum;
+int expseqnum;
+int base;
+struct pkt buffer[WINDOW_SIZE];
+
+/* Declaring functions used by students to get warnings to disappear */
+void stoptimer(int AorB);
+void starttimer(int AorB, float increment);
+
+void tolayer3(int AorB, struct pkt packet);
+void tolayer5(int AorB, char* datasent);
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
 
-// Adapted from http://www.microhowto.info/howto/calculate_an_internet_protocol_checksum_in_c.html
-/*
-void checksum(pkt* packet) {
-  // Store the message data
-  char* data = packet->payload;
-
-  // Initialize the accumlualator
-  uint32_t acc = 0xffff;
-
-  // Handle complete 16 bit chunks
-  for (int i = 0; i+1 < DATA_LENGTH; i + 2) {
-    uint16_t word;
-    memcpy(&word, data + i, 2);
-    // ntohs converts values between host and network byte order
-    acc += ntohs(word);
-    if (acc > 0xffff) {
-      acc -= 0xffff;
-    }
-  }
-
-  // Handle any partial blocks at the end of the data
-  if (DATA_LENGTH & 1) {
-    uint16_t word = 0;
-    memcpy(&word, data + DATA_LENGTH - 1, 1);
-    acc += ntohs(word);
-    if (acc > 0xffff) {
-      acc -= 0xffff;
-    }
-  }
-
-  // Returns the checksum in network byte order
-  packet->checksum((int)htons(~acc));
-  } */
-
-int checksum(msg message) {
-  // Store the message data
-  char* data = message->data;
+/* Computes the checksum */
+int computeChecksum(char* data) {
   // Initialize the accumulator
   int acc = 0;
 
   // Add all characters together
-  for (int i = 0; i < DATA_LENGTH; i++) {
+  int i;
+  for (i = 0; i < DATA_LENGTH; i++) {
     acc += data[i];
   }
 
   // Convert to 16 bit integer
-  uint16_t sum = (uint16_t)acc % pow(2, 16);
+  uint16_t sum = (uint16_t)acc % (int)pow(2, 16);
 
   return (int)sum;
 }
 
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message) {
-  // Create new packet and intitalize with data
-  pkt packet = malloc(sizeof(pkt));
-  packet.payload = message.data;
-  packet.checksum = checksum(message.data);
-  packet.acknum = 0;
-  // initialize seqnum
-  
-  // Start the timer (assuming A is represented by 0)
-  starttimer(0, 0.1);
+  if (nextseqsum < base + WINDOW_SIZE) {
+    // Create new packet and intitalize with data
+    struct pkt packet;
+    memcpy(packet.payload, message.data, DATA_LENGTH);
+    packet.checksum = computeChecksum(message.data);
+    packet.acknum = 0;
+    packet.seqnum = nextseqnum;
+    buffer[nextseqsum - 1] = packet;
+    nextseqsum++;
 
-  // Pass to layer 3
-  tolayer3(0, pkt);
+    // Pass to layer 3
+    tolayer3((int)'A', packet);
+    
+    if(base == nextseqsum) {
+      // Start the timer (assuming A is represented by 0)
+      starttimer((int)'A', (float)0.1);
+    }
+  }
+  else {
+    return; // Refuse data
+  }
 }
 
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet) {
-  // Checking the checksum
-  int checksum = checksum(packet.payload);
-  if (checksum != packet.payload) { // If the checksum is not correct, resend
-    msg message = malloc(sizeof(msg));
-    message.data = packet.payload;
-    A_output(message);
+  // Checking for corruption
+  int newChecksum = computeChecksum(packet.payload);
+  if (newChecksum != packet.checksum) { // If the checksum is not correct, resend
+    tolayer3((int)'A', packet);
   } else {
-    // Change the ACK
-    packet.acknum = 1;
-    // do something
+    base = packet.acknum + 1;
+    if (base == nextseqnum) {
+      stoptimer((int)'A');
+    }
+    else {
+      starttimer((int)'A', (float)0.1);
+    }
   }
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt() {
   stoptimer(0); // Assuming A is represented by 0
-  starttime(0, 0.1);
+  int i;
+  for (i = base; i < nextseqnum; i++) {
+    tolayer3((int)'A', buffer[i]);
+  }
+  starttimer((int)'A', (float)0.1);
 }  
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
 void A_init() {
-  
+  nextseqnum = 1;
+  base = 1;
 }
 
 
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
+
+// TODO: ASK CHARLIE FOR HELP WITH B_INPUT
 void B_input(struct pkt packet) {
-  msg message = malloc(sizeof(msg));
-  message.data = packet.payload;
-  
-  // Send to layer 5, assuming B is represented by 1
-  tolayer5(1, message);
+   // Checking for corruption
+  int newChecksum = computeChecksum(packet.payload);
+  if (newChecksum != packet.checksum) { // If the checksum is not correct, resend
+    return;
+  }
+  else {
+    // Send to layer 5, assuming B is represented by 1
+    tolayer5((int)'B', packet.payload);
+    struct pkt newPacket;
+    newPacket.seqnum = expseqnum;
+    newPacket.payload = packet.payload;
+    newPacket.checksum = packet.checksum;
+    newPacket.acknum = 1; // WHAT DO WE MAKE THE ACK
+    tolayer3((int)'A', newPacket);
+    expseqnum++;
+  }
 }
 
 /* called when B's timer goes off */
 void B_timerinterrupt() {
-  stoptimer(1); // Assuming B is represented by 1
-  starttimer(1, 0.1);
+  stoptimer((int)'B'); // Assuming B is represented by 1
+  starttimer((int)'B', 0.1);
 }
 
 /* the following rouytine will be called once (only) before any other */
 /* entity B routines are called. You can use it to do any initialization */
 void B_init() {
-  
+  expseqnum = 1;
 }
 
 
@@ -298,7 +306,7 @@ void init() {                       /* initialize the simulator */
   float jimsrand();
   
   
-  printf("-----  Stop and Wait Network Simulator Version 1.1 -------- \n\n");
+  printf("-----  Go and Back N Network Simulator Version 1.1 -------- \n\n");
   printf("Enter the number of messages to simulate: ");
   scanf("%d",&nsimmax);
   printf("Enter  packet loss probability [enter 0.0 for no loss]:");
