@@ -89,6 +89,7 @@ void A_output(struct msg message) {
       // Start the timer 
       starttimer(0, (float)0.1);
     }
+    nextseqnum++;
   }
   else {
     return; // Refuse data
@@ -114,12 +115,11 @@ void A_input(struct pkt packet) {
 
 /* called when A's timer goes off */
 void A_timerinterrupt() {
-  stoptimer(0);
+  starttimer(0, (float)0.1); // restart the timer
   int i;
   for (i = base; i < nextseqnum; i++) {
     tolayer3(0, buffer[i]);
   }
-  starttimer(0, (float)0.1);
 }  
 
 /* the following routine will be called once (only) before any other */
